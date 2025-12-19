@@ -2,6 +2,8 @@ from flask import Flask, render_template, request, jsonify
 import os
 from werkzeug.utils import secure_filename
 from datetime import datetime
+import pandas as pd
+import numpy as np
 from models import db, DataFile
 from config import Config
 from data_processor import DataProcessor
@@ -85,6 +87,13 @@ def process_data():
         plot_types = data.get('plot_types', [])
         generate_all = data.get('generate_all', False)
         
+        # Comparison period settings
+        enable_comparison = data.get('enable_comparison', False)
+        op_start = data.get('op_start')
+        op_end = data.get('op_end')
+        clim_start = data.get('clim_start')
+        clim_end = data.get('clim_end')
+        
         if not file_id:
             return jsonify({'error': 'No file selected'}), 400
         
@@ -102,7 +111,7 @@ def process_data():
         if month_filter:
             month_filter = [int(m) for m in month_filter]
         
-        # Generate plots
+        # Generate regular plots
         if generate_all:
             plots = plot_gen.generate_all_plots(df, month_filter, season_filter)
         else:
@@ -125,7 +134,69 @@ def process_data():
                         plots[key] = None
                         print(f"Error generating {key}: {str(e)}")
         
-        return jsonify({'plots': plots, 'success': True})
+        # Generate comparison plots if enabled
+        comparison_plots = {}
+        comparison_stats = {}
+        
+        if enable_comparison and op_start and op_end and clim_start and clim_end:
+            try:
+                from scipy import stats
+                
+                op_start_dt = pd.to_datetime(op_start)
+                op_end_dt = pd.to_datetime(op_end)
+                clim_start_dt = pd.to_datetime(clim_start)
+                clim_end_dt = pd.to_datetime(clim_end)
+                
+                # Filter data by periods
+                df_operating = df[(df['timestamp'] >= op_start_dt) & (df['timestamp'] <= op_end_dt)]
+                df_climatology = df[(df['timestamp'] >= clim_start_dt) & (df['timestamp'] <= clim_end_dt)]
+                
+                if len(df_operating) > 0 and len(df_climatology) > 0:
+                    # Generate comparison plots for both rain and snow
+                    for precip_type in ['rain', 'snow']:
+                        try:
+                            comparison_plots[f'{precip_type}_comparison_histogram'] = plot_gen.operating_vs_climatology_histogram(
+                                df_operating, df_climatology, precip_type
+                            )
+                            comparison_plots[f'{precip_type}_anomaly'] = plot_gen.precipitation_anomaly(
+                                df_operating, df_climatology, precip_type
+                            )
+                            
+                            # Calculate statistics
+                            col_name = 'Rain_mm' if precip_type == 'rain' else 'Snow_mm'
+                            monthly_op = df_operating.groupby(['Year', 'Month'])[col_name].sum().values
+                            monthly_clim = df_climatology.groupby(['Year', 'Month'])[col_name].sum().values
+                            
+                            # Statistical tests
+                            t_stat, t_pval = stats.ttest_ind(monthly_op, monthly_clim)
+                            u_stat, u_pval = stats.mannwhitneyu(monthly_op, monthly_clim, alternative='two-sided')
+                            ks_stat, ks_pval = stats.ks_2samp(monthly_op, monthly_clim)
+                            
+                            # Effect size (Cohen's d)
+                            pooled_std = np.sqrt((monthly_op.std()**2 + monthly_clim.std()**2) / 2)
+                            cohens_d = (monthly_op.mean() - monthly_clim.mean()) / pooled_std if pooled_std > 0 else 0
+                            
+                            comparison_stats[precip_type] = {
+                                'operating_mean': float(monthly_op.mean()),
+                                'operating_std': float(monthly_op.std()),
+                                'climatology_mean': float(monthly_clim.mean()),
+                                'climatology_std': float(monthly_clim.std()),
+                                't_test_pvalue': float(t_pval),
+                                'mannwhitney_pvalue': float(u_pval),
+                                'ks_test_pvalue': float(ks_pval),
+                                'cohens_d': float(cohens_d)
+                            }
+                        except Exception as e:
+                            print(f"Error generating comparison plots for {precip_type}: {str(e)}")
+            except Exception as e:
+                print(f"Error in comparison analysis: {str(e)}")
+        
+        return jsonify({
+            'plots': plots, 
+            'comparison_plots': comparison_plots,
+            'comparison_stats': comparison_stats,
+            'success': True
+        })
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500

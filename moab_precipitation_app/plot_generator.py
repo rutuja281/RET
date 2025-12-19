@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import base64
 import io
+from scipy import stats
 
 class PlotGenerator:
     """Generate plots as base64 encoded images"""
@@ -214,6 +215,73 @@ class PlotGenerator:
         ax.set_xlabel('Month')
         ax.set_ylabel(f'Monthly Total {precip_type.capitalize()} (mm)')
         ax.set_title(f'Monthly {precip_type.capitalize()} Distribution - Moab, Utah')
+        
+        return self._fig_to_base64(fig)
+    
+    def operating_vs_climatology_histogram(self, df_op, df_clim, precip_type='rain'):
+        """Overlay histogram comparing operating period vs climatology"""
+        col_name = 'Rain_mm' if precip_type == 'rain' else 'Snow_mm'
+        
+        # Calculate monthly totals
+        monthly_op = df_op.groupby(['Year', 'Month'])[col_name].sum().values
+        monthly_clim = df_clim.groupby(['Year', 'Month'])[col_name].sum().values
+        
+        # Determine common bin edges
+        all_data = np.concatenate([monthly_op, monthly_clim])
+        bins = np.linspace(0, np.percentile(all_data, 98), 25)
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        ax.hist(monthly_clim, bins=bins, alpha=0.6, label='Climatology',
+                color='steelblue', edgecolor='white', density=True)
+        ax.hist(monthly_op, bins=bins, alpha=0.6, label='Operating Period',
+                color='darkorange', edgecolor='white', density=True)
+        
+        ax.axvline(monthly_clim.mean(), color='steelblue', linestyle='--', linewidth=2)
+        ax.axvline(monthly_op.mean(), color='darkorange', linestyle='--', linewidth=2)
+        
+        ax.set_xlabel(f'Monthly {precip_type.capitalize()} (mm)', fontsize=12)
+        ax.set_ylabel('Density', fontsize=12)
+        ax.set_title(f'Monthly {precip_type.capitalize()} Distribution: Operating Period vs Climatology', fontsize=14)
+        ax.legend(fontsize=11)
+        
+        return self._fig_to_base64(fig)
+    
+    def precipitation_anomaly(self, df_op, df_clim, precip_type='rain'):
+        """Anomaly plot showing departure from climatology"""
+        col_name = 'Rain_mm' if precip_type == 'rain' else 'Snow_mm'
+        
+        # Calculate climatological mean for each month
+        monthly_clim = df_clim.groupby(['Year', 'Month'])[col_name].sum().reset_index()
+        clim_monthly_means = monthly_clim.groupby('Month')[col_name].mean()
+        
+        # Calculate anomalies for operating period
+        monthly_op = df_op.groupby(['Year', 'Month'])[col_name].sum().reset_index()
+        monthly_op['Climatology'] = monthly_op['Month'].map(clim_monthly_means)
+        monthly_op['Anomaly'] = monthly_op[col_name] - monthly_op['Climatology']
+        
+        # Create date index for plotting
+        monthly_op['Date'] = pd.to_datetime(
+            monthly_op['Year'].astype(str) + '-' + 
+            monthly_op['Month'].astype(str).str.zfill(2) + '-01'
+        )
+        
+        fig, ax = plt.subplots(figsize=(14, 6))
+        
+        colors = ['#e74c3c' if x > 0 else '#3498db' for x in monthly_op['Anomaly']]
+        ax.bar(monthly_op['Date'], monthly_op['Anomaly'], 
+               color=colors, alpha=0.8, width=25)
+        
+        ax.axhline(0, color='black', linewidth=1)
+        ax.set_xlabel('Date', fontsize=12)
+        ax.set_ylabel(f'{precip_type.capitalize()} Anomaly (mm)', fontsize=12)
+        ax.set_title(f'Monthly {precip_type.capitalize()} Anomaly During Operating Period\n(Departure from Climatological Mean)', fontsize=14)
+        
+        # Add legend
+        from matplotlib.patches import Patch
+        legend_elements = [Patch(facecolor='#e74c3c', alpha=0.8, label='Above Normal'),
+                           Patch(facecolor='#3498db', alpha=0.8, label='Below Normal')]
+        ax.legend(handles=legend_elements, loc='upper right')
         
         return self._fig_to_base64(fig)
     

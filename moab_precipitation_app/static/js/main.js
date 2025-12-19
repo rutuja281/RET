@@ -22,6 +22,12 @@ document.getElementById('generateAll').addEventListener('change', function(e) {
     plotOptions.style.display = e.target.checked ? 'none' : 'block';
 });
 
+// Comparison toggle handler
+document.getElementById('enableComparison').addEventListener('change', function(e) {
+    const comparisonOptions = document.getElementById('comparisonOptions');
+    comparisonOptions.style.display = e.target.checked ? 'block' : 'none';
+});
+
 function uploadFile() {
     const fileInput = document.getElementById('fileInput');
     const file = fileInput.files[0];
@@ -88,12 +94,24 @@ function generatePlots() {
         return;
     }
     
+    // Get comparison settings
+    const enableComparison = document.getElementById('enableComparison').checked;
+    const opStart = document.getElementById('opStart').value;
+    const opEnd = document.getElementById('opEnd').value;
+    const climStart = document.getElementById('climStart').value;
+    const climEnd = document.getElementById('climEnd').value;
+    
     const data = {
         file_id: parseInt(selectedFileId),
         months: months,
         seasons: seasons,
         plot_types: plotTypes,
-        generate_all: generateAll
+        generate_all: generateAll,
+        enable_comparison: enableComparison,
+        op_start: opStart,
+        op_end: opEnd,
+        clim_start: climStart,
+        clim_end: climEnd
     };
     
     const generateSpinner = document.getElementById('generateSpinner');
@@ -111,7 +129,7 @@ function generatePlots() {
     .then(data => {
         generateSpinner.classList.add('d-none');
         if (data.success && data.plots) {
-            displayPlots(data.plots);
+            displayPlots(data.plots, data.comparison_plots, data.comparison_stats);
         } else if (data.error) {
             resultsDiv.innerHTML = `<div class="col-12"><div class="alert alert-danger">Error: ${data.error}</div></div>`;
         } else {
@@ -124,7 +142,7 @@ function generatePlots() {
     });
 }
 
-function displayPlots(plots) {
+function displayPlots(plots, comparisonPlots = {}, comparisonStats = {}) {
     const resultsDiv = document.getElementById('results');
     resultsDiv.innerHTML = '';
     
@@ -174,9 +192,94 @@ function displayPlots(plots) {
         });
     }
     
-    if (Object.keys(rainPlots).length === 0 && Object.keys(snowPlots).length === 0) {
+    // Display comparison plots if available
+    if (Object.keys(comparisonPlots).length > 0) {
+        const compSection = document.createElement('div');
+        compSection.className = 'col-12 mb-4';
+        compSection.innerHTML = '<div class="card shadow"><div class="card-header bg-success text-white"><h3 class="mb-0">Period Comparison Analysis</h3></div></div>';
+        resultsDiv.appendChild(compSection);
+        
+        const compContainer = document.createElement('div');
+        compContainer.className = 'p-3';
+        compSection.querySelector('.card').appendChild(compContainer);
+        
+        // Add statistics table
+        if (Object.keys(comparisonStats).length > 0) {
+            const statsDiv = document.createElement('div');
+            statsDiv.className = 'mb-4';
+            statsDiv.innerHTML = createStatsTable(comparisonStats);
+            compContainer.appendChild(statsDiv);
+        }
+        
+        // Add comparison plots
+        const plotsRow = document.createElement('div');
+        plotsRow.className = 'row';
+        compContainer.appendChild(plotsRow);
+        
+        Object.keys(comparisonPlots).forEach(plotKey => {
+            if (comparisonPlots[plotKey]) {
+                const plotDiv = createComparisonPlotCard(plotKey, comparisonPlots[plotKey]);
+                plotsRow.appendChild(plotDiv);
+            }
+        });
+    }
+    
+    if (Object.keys(rainPlots).length === 0 && Object.keys(snowPlots).length === 0 && Object.keys(comparisonPlots).length === 0) {
         resultsDiv.innerHTML = '<div class="col-12"><div class="alert alert-warning">No plots were generated. Please check your selections.</div></div>';
     }
+}
+
+function createStatsTable(stats) {
+    let html = '<h5>Statistical Test Results</h5><div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr><th>Precipitation Type</th><th>Operating Mean (mm)</th><th>Climatology Mean (mm)</th><th>t-test p-value</th><th>Mann-Whitney p-value</th><th>KS-test p-value</th><th>Cohen\'s d</th><th>Significant?</th></tr></thead><tbody>';
+    
+    Object.keys(stats).forEach(precipType => {
+        const s = stats[precipType];
+        const significant = s.t_test_pvalue < 0.05 || s.mannwhitney_pvalue < 0.05;
+        const sigText = significant ? '<span class="badge bg-danger">Yes</span>' : '<span class="badge bg-secondary">No</span>';
+        
+        html += `<tr>
+            <td><strong>${precipType.charAt(0).toUpperCase() + precipType.slice(1)}</strong></td>
+            <td>${s.operating_mean.toFixed(2)} ± ${s.operating_std.toFixed(2)}</td>
+            <td>${s.climatology_mean.toFixed(2)} ± ${s.climatology_std.toFixed(2)}</td>
+            <td>${s.t_test_pvalue.toFixed(4)}</td>
+            <td>${s.mannwhitney_pvalue.toFixed(4)}</td>
+            <td>${s.ks_test_pvalue.toFixed(4)}</td>
+            <td>${s.cohens_d.toFixed(3)}</td>
+            <td>${sigText}</td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table></div>';
+    html += '<div class="alert alert-info mt-3"><small><strong>Interpretation:</strong> p &lt; 0.05 indicates statistically significant difference. Cohen\'s d: |d| &lt; 0.2 (negligible), 0.2-0.5 (small), 0.5-0.8 (medium), &gt; 0.8 (large)</small></div>';
+    
+    return html;
+}
+
+function createComparisonPlotCard(plotKey, imgBase64) {
+    const col = document.createElement('div');
+    col.className = 'col-lg-6 col-md-12 mb-4';
+    
+    // Format plot name
+    let displayName = plotKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    if (plotKey.includes('comparison_histogram')) {
+        displayName = 'Distribution Comparison';
+    } else if (plotKey.includes('anomaly')) {
+        displayName = 'Anomaly Plot';
+    }
+    
+    const precipType = plotKey.startsWith('rain_') ? 'Rain' : 'Snow';
+    
+    col.innerHTML = `
+        <div class="card h-100 shadow-sm">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">${precipType} - ${displayName}</h5>
+            </div>
+            <div class="card-body">
+                <img src="data:image/png;base64,${imgBase64}" class="img-fluid" alt="${displayName}">
+            </div>
+        </div>
+    `;
+    return col;
 }
 
 function createPlotCard(precipType, plotName, imgBase64) {
