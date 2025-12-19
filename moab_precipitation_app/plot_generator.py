@@ -1,0 +1,247 @@
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import pandas as pd
+import base64
+import io
+
+class PlotGenerator:
+    """Generate plots as base64 encoded images"""
+    
+    def __init__(self):
+        # Try different matplotlib styles for compatibility
+        try:
+            plt.style.use('seaborn-v0_8-whitegrid')
+        except OSError:
+            try:
+                plt.style.use('seaborn-whitegrid')
+            except OSError:
+                pass  # Use default style
+        
+        sns.set_palette('husl')
+        
+    def _fig_to_base64(self, fig):
+        """Convert matplotlib figure to base64 string"""
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        buf.seek(0)
+        img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+        plt.close(fig)
+        return img_base64
+    
+    def monthly_totals_heatmap(self, df, precip_type='rain', month_filter=None):
+        """Monthly totals heatmap for rain OR snow"""
+        if month_filter and len(month_filter) > 0:
+            df = df[df['Month'].isin(month_filter)]
+        
+        col_name = 'Rain_mm' if precip_type == 'rain' else 'Snow_mm'
+        
+        if col_name not in df.columns:
+            raise ValueError(f"Column {col_name} not found in dataframe")
+        
+        monthly_totals = df.groupby(['Year', 'Month'])[col_name].sum().reset_index()
+        monthly_pivot = monthly_totals.pivot(index='Year', columns='Month', values=col_name)
+        
+        fig, ax = plt.subplots(figsize=(14, 10))
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        
+        sns.heatmap(monthly_pivot, annot=True, fmt='.1f', cmap='Blues',
+                   cbar_kws={'label': f'{precip_type.capitalize()} (mm)'},
+                   xticklabels=month_names, ax=ax)
+        ax.set_xlabel('Month')
+        ax.set_ylabel('Year')
+        ax.set_title(f'Monthly Total {precip_type.capitalize()} Heatmap - Moab, Utah')
+        
+        return self._fig_to_base64(fig)
+    
+    def monthly_climatology(self, df, precip_type='rain', month_filter=None):
+        """Monthly climatology bar chart"""
+        if month_filter and len(month_filter) > 0:
+            df = df[df['Month'].isin(month_filter)]
+        
+        col_name = 'Rain_mm' if precip_type == 'rain' else 'Snow_mm'
+        
+        if col_name not in df.columns:
+            raise ValueError(f"Column {col_name} not found in dataframe")
+        
+        monthly_totals = df.groupby(['Year', 'Month'])[col_name].sum().reset_index()
+        monthly_clim = monthly_totals.groupby('Month')[col_name].agg(['mean', 'std'])
+        monthly_clim.columns = ['Mean', 'Std']
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        x = np.arange(12)
+        
+        # Only plot months that exist in data
+        available_months = monthly_clim.index.tolist()
+        x_vals = [i for i in range(12) if (i+1) in available_months]
+        labels = [month_names[i] for i in x_vals]
+        means = [monthly_clim.loc[i+1, 'Mean'] for i in x_vals]
+        stds = [monthly_clim.loc[i+1, 'Std'] for i in x_vals]
+        
+        ax.bar(x_vals, means, yerr=stds, capsize=5, 
+              color='steelblue', edgecolor='white', alpha=0.8,
+              error_kw={'ecolor': 'darkblue', 'elinewidth': 2})
+        ax.set_xticks(x_vals)
+        ax.set_xticklabels(labels)
+        ax.set_xlabel('Month')
+        ax.set_ylabel(f'{precip_type.capitalize()} (mm)')
+        ax.set_title(f'Monthly {precip_type.capitalize()} Climatology with Standard Deviation - Moab, Utah')
+        
+        # Add value labels
+        for i, (mean, std) in enumerate(zip(means, stds)):
+            ax.text(x_vals[i], mean + std + max(means) * 0.02, f'{mean:.1f}', 
+                   ha='center', va='bottom', fontsize=9)
+        
+        return self._fig_to_base64(fig)
+    
+    def seasonal_boxplot(self, df, precip_type='rain', season_filter=None):
+        """Seasonal distribution boxplot"""
+        def assign_season_year(row):
+            if row['Month'] == 12:
+                return row['Year'] + 1
+            return row['Year']
+        
+        df['SeasonYear'] = df.apply(assign_season_year, axis=1)
+        col_name = 'Rain_mm' if precip_type == 'rain' else 'Snow_mm'
+        
+        if col_name not in df.columns:
+            raise ValueError(f"Column {col_name} not found in dataframe")
+        
+        seasonal_totals = df.groupby(['SeasonYear', 'Season'])[col_name].sum().reset_index()
+        
+        if season_filter and len(season_filter) > 0:
+            seasonal_totals = seasonal_totals[seasonal_totals['Season'].isin(season_filter)]
+        
+        season_order = ['DJF', 'MAM', 'JJA', 'SON']
+        season_colors = {'DJF': '#3498db', 'MAM': '#2ecc71', 'JJA': '#e74c3c', 'SON': '#f39c12'}
+        
+        # Only include seasons that have data
+        available_seasons = seasonal_totals['Season'].unique().tolist()
+        boxplot_data = []
+        labels = []
+        colors_list = []
+        
+        for season in season_order:
+            if season in available_seasons:
+                data = seasonal_totals[seasonal_totals['Season'] == season][col_name].values
+                if len(data) > 0:
+                    boxplot_data.append(data)
+                    labels.append(season)
+                    colors_list.append(season_colors[season])
+        
+        if len(boxplot_data) == 0:
+            raise ValueError("No seasonal data available")
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        bp = ax.boxplot(boxplot_data, patch_artist=True, labels=labels)
+        
+        for patch, color in zip(bp['boxes'], colors_list):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+        
+        ax.set_xlabel('Season')
+        ax.set_ylabel(f'{precip_type.capitalize()} (mm)')
+        ax.set_title(f'Seasonal {precip_type.capitalize()} Distribution - Moab, Utah\n(DJF=Winter, MAM=Spring, JJA=Summer, SON=Fall)')
+        
+        return self._fig_to_base64(fig)
+    
+    def annual_totals(self, df, precip_type='rain'):
+        """Annual totals time series"""
+        col_name = 'Rain_mm' if precip_type == 'rain' else 'Snow_mm'
+        
+        if col_name not in df.columns:
+            raise ValueError(f"Column {col_name} not found in dataframe")
+        
+        annual = df.groupby('Year')[col_name].sum()
+        
+        fig, ax = plt.subplots(figsize=(14, 6))
+        ax.bar(annual.index, annual.values, color='steelblue', alpha=0.8, edgecolor='white')
+        
+        mean_val = annual.mean()
+        ax.axhline(mean_val, color='red', linestyle='--', linewidth=2, 
+                   label=f'Mean: {mean_val:.1f} mm')
+        
+        # Add trend line
+        z = np.polyfit(annual.index, annual.values, 1)
+        p = np.poly1d(z)
+        ax.plot(annual.index, p(annual.index), color='orange', linewidth=2, 
+               linestyle='-', label='Trend')
+        
+        ax.set_xlabel('Year')
+        ax.set_ylabel(f'{precip_type.capitalize()} (mm)')
+        ax.set_title(f'Annual Total {precip_type.capitalize()} - Moab, Utah')
+        ax.legend()
+        ax.set_xticks(annual.index[::max(1, len(annual)//10)])  # Show every Nth year
+        
+        return self._fig_to_base64(fig)
+    
+    def monthly_distribution_boxplot(self, df, precip_type='rain', month_filter=None):
+        """Monthly precipitation distribution boxplot"""
+        if month_filter and len(month_filter) > 0:
+            df = df[df['Month'].isin(month_filter)]
+        
+        col_name = 'Rain_mm' if precip_type == 'rain' else 'Snow_mm'
+        
+        if col_name not in df.columns:
+            raise ValueError(f"Column {col_name} not found in dataframe")
+        
+        monthly_totals = df.groupby(['Year', 'Month'])[col_name].sum().reset_index()
+        
+        fig, ax = plt.subplots(figsize=(14, 6))
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        
+        boxplot_data = []
+        for m in range(1, 13):
+            month_data = monthly_totals[monthly_totals['Month'] == m][col_name].values
+            if len(month_data) > 0:
+                boxplot_data.append(month_data)
+            else:
+                boxplot_data.append([])
+        
+        bp = ax.boxplot(boxplot_data, patch_artist=True, labels=month_names)
+        
+        # Color the boxes
+        colors = plt.cm.Blues(np.linspace(0.3, 0.8, 12))
+        for patch, color in zip(bp['boxes'], colors):
+            patch.set_facecolor(color)
+        
+        ax.set_xlabel('Month')
+        ax.set_ylabel(f'Monthly Total {precip_type.capitalize()} (mm)')
+        ax.set_title(f'Monthly {precip_type.capitalize()} Distribution - Moab, Utah')
+        
+        return self._fig_to_base64(fig)
+    
+    def generate_all_plots(self, df, month_filter=None, season_filter=None):
+        """Generate all plots for both rain and snow"""
+        plots = {}
+        
+        plot_types = [
+            ('monthly_heatmap', self.monthly_totals_heatmap),
+            ('monthly_climatology', self.monthly_climatology),
+            ('seasonal_boxplot', self.seasonal_boxplot),
+            ('annual_totals', self.annual_totals),
+            ('monthly_distribution', self.monthly_distribution_boxplot)
+        ]
+        
+        for precip_type in ['rain', 'snow']:
+            for plot_name, plot_func in plot_types:
+                key = f'{precip_type}_{plot_name}'
+                try:
+                    if 'monthly' in plot_name and 'seasonal' not in plot_name:
+                        plots[key] = plot_func(df, precip_type, month_filter)
+                    elif 'seasonal' in plot_name:
+                        plots[key] = plot_func(df, precip_type, season_filter)
+                    else:
+                        plots[key] = plot_func(df, precip_type)
+                except Exception as e:
+                    plots[key] = None
+                    print(f"Error generating {key}: {e}")
+        
+        return plots
+

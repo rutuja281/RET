@@ -1,0 +1,201 @@
+let selectedFileId = null;
+
+// File selection change handler
+document.getElementById('fileSelect').addEventListener('change', function(e) {
+    selectedFileId = e.target.value;
+    const option = e.target.options[e.target.selectedIndex];
+    
+    if (selectedFileId) {
+        const rows = option.getAttribute('data-rows');
+        const start = option.getAttribute('data-start');
+        const end = option.getAttribute('data-end');
+        document.getElementById('fileInfo').innerHTML = 
+            `<small>Rows: ${rows} | Date Range: ${start} to ${end}</small>`;
+    } else {
+        document.getElementById('fileInfo').innerHTML = '';
+    }
+});
+
+// Generate all checkbox handler
+document.getElementById('generateAll').addEventListener('change', function(e) {
+    const plotOptions = document.getElementById('plotOptions');
+    plotOptions.style.display = e.target.checked ? 'none' : 'block';
+});
+
+function uploadFile() {
+    const fileInput = document.getElementById('fileInput');
+    const file = fileInput.files[0];
+    const uploadStatus = document.getElementById('uploadStatus');
+    const uploadSpinner = document.getElementById('uploadSpinner');
+    
+    if (!file) {
+        uploadStatus.innerHTML = '<div class="alert alert-warning">Please select a file</div>';
+        return;
+    }
+    
+    uploadSpinner.classList.remove('d-none');
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    fetch('/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        uploadSpinner.classList.add('d-none');
+        if (data.success) {
+            uploadStatus.innerHTML = 
+                `<div class="alert alert-success">
+                    <strong>Success!</strong> File "${data.filename}" uploaded successfully.<br>
+                    Rows: ${data.rows_count} | Date Range: ${data.date_range}
+                </div>`;
+            fileInput.value = '';
+            // Reload page after 2 seconds to show new file
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            uploadStatus.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        }
+    })
+    .catch(error => {
+        uploadSpinner.classList.add('d-none');
+        uploadStatus.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+    });
+}
+
+function generatePlots() {
+    if (!selectedFileId) {
+        alert('Please select a file from the database');
+        return;
+    }
+    
+    // Get selected months
+    const months = Array.from(document.querySelectorAll('.month-check:checked'))
+        .map(cb => parseInt(cb.value));
+    
+    // Get selected seasons
+    const seasons = Array.from(document.querySelectorAll('.season-check:checked'))
+        .map(cb => cb.value);
+    
+    // Get plot types
+    const generateAll = document.getElementById('generateAll').checked;
+    const plotTypes = generateAll ? [] : 
+        Array.from(document.querySelectorAll('.plot-check:checked'))
+            .map(cb => cb.value);
+    
+    if (!generateAll && plotTypes.length === 0) {
+        alert('Please select at least one plot type or check "Generate All Plots"');
+        return;
+    }
+    
+    const data = {
+        file_id: parseInt(selectedFileId),
+        months: months,
+        seasons: seasons,
+        plot_types: plotTypes,
+        generate_all: generateAll
+    };
+    
+    const generateSpinner = document.getElementById('generateSpinner');
+    const resultsDiv = document.getElementById('results');
+    
+    generateSpinner.classList.remove('d-none');
+    resultsDiv.innerHTML = '<div class="col-12"><div class="alert alert-info">Generating plots, please wait...</div></div>';
+    
+    fetch('/process', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        generateSpinner.classList.add('d-none');
+        if (data.success && data.plots) {
+            displayPlots(data.plots);
+        } else if (data.error) {
+            resultsDiv.innerHTML = `<div class="col-12"><div class="alert alert-danger">Error: ${data.error}</div></div>`;
+        } else {
+            resultsDiv.innerHTML = '<div class="col-12"><div class="alert alert-warning">No plots generated</div></div>';
+        }
+    })
+    .catch(error => {
+        generateSpinner.classList.add('d-none');
+        resultsDiv.innerHTML = `<div class="col-12"><div class="alert alert-danger">Error: ${error.message}</div></div>`;
+    });
+}
+
+function displayPlots(plots) {
+    const resultsDiv = document.getElementById('results');
+    resultsDiv.innerHTML = '';
+    
+    // Group by precipitation type
+    const rainPlots = {};
+    const snowPlots = {};
+    
+    Object.keys(plots).forEach(key => {
+        if (key.startsWith('rain_') && plots[key]) {
+            rainPlots[key.replace('rain_', '')] = plots[key];
+        } else if (key.startsWith('snow_') && plots[key]) {
+            snowPlots[key.replace('snow_', '')] = plots[key];
+        }
+    });
+    
+    // Display rain plots
+    if (Object.keys(rainPlots).length > 0) {
+        const rainSection = document.createElement('div');
+        rainSection.className = 'col-12 mb-4';
+        rainSection.innerHTML = '<div class="card shadow"><div class="card-header bg-danger text-white"><h3 class="mb-0">Rain Plots</h3></div></div>';
+        resultsDiv.appendChild(rainSection);
+        
+        const rainContainer = document.createElement('div');
+        rainContainer.className = 'row p-3';
+        rainSection.querySelector('.card').appendChild(rainContainer);
+        
+        Object.keys(rainPlots).forEach(plotName => {
+            const plotDiv = createPlotCard('Rain', plotName, rainPlots[plotName]);
+            rainContainer.appendChild(plotDiv);
+        });
+    }
+    
+    // Display snow plots
+    if (Object.keys(snowPlots).length > 0) {
+        const snowSection = document.createElement('div');
+        snowSection.className = 'col-12 mb-4';
+        snowSection.innerHTML = '<div class="card shadow"><div class="card-header bg-info text-white"><h3 class="mb-0">Snow Plots</h3></div></div>';
+        resultsDiv.appendChild(snowSection);
+        
+        const snowContainer = document.createElement('div');
+        snowContainer.className = 'row p-3';
+        snowSection.querySelector('.card').appendChild(snowContainer);
+        
+        Object.keys(snowPlots).forEach(plotName => {
+            const plotDiv = createPlotCard('Snow', plotName, snowPlots[plotName]);
+            snowContainer.appendChild(plotDiv);
+        });
+    }
+    
+    if (Object.keys(rainPlots).length === 0 && Object.keys(snowPlots).length === 0) {
+        resultsDiv.innerHTML = '<div class="col-12"><div class="alert alert-warning">No plots were generated. Please check your selections.</div></div>';
+    }
+}
+
+function createPlotCard(precipType, plotName, imgBase64) {
+    const col = document.createElement('div');
+    col.className = 'col-lg-6 col-md-12 mb-4';
+    
+    // Format plot name for display
+    const displayName = plotName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    
+    col.innerHTML = `
+        <div class="card h-100 shadow-sm">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0">${precipType} - ${displayName}</h5>
+            </div>
+            <div class="card-body">
+                <img src="data:image/png;base64,${imgBase64}" class="img-fluid" alt="${displayName}">
+            </div>
+        </div>
+    `;
+    return col;
+}
+
