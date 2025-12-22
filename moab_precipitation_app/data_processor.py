@@ -182,6 +182,7 @@ class DataProcessor:
         # 3. Wind speed variables - Linear interpolation
         for col in WIND_SPEED_VARS:
             if col in df.columns and df[col].isnull().sum() > 0:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
                 df[col] = df[col].interpolate(method='linear', limit=6, limit_direction='both')
                 df[col] = df[col].ffill().bfill()
         
@@ -193,12 +194,14 @@ class DataProcessor:
         # 5. Humidity variables - Linear interpolation
         for col in HUMIDITY_VARS:
             if col in df.columns and df[col].isnull().sum() > 0:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
                 df[col] = df[col].interpolate(method='linear', limit=6, limit_direction='both')
                 df[col] = df[col].ffill().bfill()
         
         # 6. Pressure and geopotential height - Linear interpolation
         for col in PRESSURE_HEIGHT_VARS:
             if col in df.columns and df[col].isnull().sum() > 0:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
                 df[col] = df[col].interpolate(method='linear', limit=6, limit_direction='both')
                 df[col] = df[col].ffill().bfill()
         
@@ -215,6 +218,8 @@ class DataProcessor:
         # Handle any remaining columns
         remaining_cols = [col for col in df.columns if col != 'timestamp' and df[col].isnull().sum() > 0]
         for col in remaining_cols:
+            # Convert to numeric first if needed, then interpolate
+            df[col] = pd.to_numeric(df[col], errors='coerce')
             df[col] = df[col].interpolate(method='linear', limit=6, limit_direction='both')
             df[col] = df[col].ffill().bfill()
         
