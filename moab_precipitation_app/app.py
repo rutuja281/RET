@@ -15,6 +15,41 @@ db.init_app(app)
 
 plot_gen = PlotGenerator()
 
+@app.errorhandler(404)
+def handle_404(e):
+    """Handle 404 errors"""
+    if request.path.startswith('/process') or request.path.startswith('/upload'):
+        return jsonify({'error': 'Endpoint not found'}), 404
+    # For other routes, use default Flask 404 handling
+    from flask import render_template
+    return render_template('404.html'), 404 if os.path.exists('templates/404.html') else (str(e), 404)
+
+@app.errorhandler(500)
+def handle_500(e):
+    """Handle 500 errors"""
+    error_msg = str(e) if hasattr(e, '__str__') else 'Internal server error'
+    print(f"Server error: {error_msg}")
+    print(traceback.format_exc())
+    
+    # Return JSON for API endpoints
+    if request.path.startswith('/process') or request.path.startswith('/upload'):
+        return jsonify({'error': f'Server error: {error_msg}'}), 500
+    # For other routes, return error page
+    return jsonify({'error': error_msg}), 500
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Handle all other exceptions and return JSON error response for API endpoints"""
+    error_msg = str(e) if hasattr(e, '__str__') else 'Unknown error'
+    print(f"Unhandled exception: {error_msg}")
+    print(traceback.format_exc())
+    
+    # Return JSON for API endpoints
+    if request.path.startswith('/process') or request.path.startswith('/upload') or request.path.startswith('/delete_file'):
+        return jsonify({'error': error_msg}), 500
+    # For other routes, re-raise to use default Flask handling
+    raise e
+
 # Create upload directory
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
@@ -49,6 +84,12 @@ def upload_file():
             processor = DataProcessor(filepath)
             df, _ = processor.process()
             
+            # Validate that we have data
+            if len(df) == 0:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                return jsonify({'error': 'File processed but contains no valid data rows'}), 400
+            
             # Save to database
             data_file = DataFile(
                 filename=unique_filename,
@@ -71,8 +112,14 @@ def upload_file():
         except Exception as e:
             # Clean up file if processing fails
             if os.path.exists(filepath):
-                os.remove(filepath)
-            return jsonify({'error': f'Error processing file: {str(e)}'}), 400
+                try:
+                    os.remove(filepath)
+                except:
+                    pass
+            error_msg = f'Error processing file: {str(e)}'
+            print(f"Upload error: {error_msg}")
+            print(traceback.format_exc())
+            return jsonify({'error': error_msg}), 400
     
     return jsonify({'error': 'Invalid file type. Please upload a CSV file.'}), 400
 
@@ -81,6 +128,9 @@ def process_data():
     """Process data and generate plots based on user selections"""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data received'}), 400
+        
         file_id = data.get('file_id')
         month_filter = data.get('months', [])
         season_filter = data.get('seasons', [])
@@ -104,8 +154,15 @@ def process_data():
             return jsonify({'error': 'File not found on server'}), 404
         
         # Process data
-        processor = DataProcessor(data_file.file_path)
-        df, _ = processor.process()
+        try:
+            processor = DataProcessor(data_file.file_path)
+            df, _ = processor.process()
+        except Exception as e:
+            import traceback
+            error_msg = f'Error processing data file: {str(e)}'
+            print(f"Data processing error: {error_msg}")
+            print(traceback.format_exc())
+            return jsonify({'error': error_msg}), 500
         
         # Convert month strings to integers
         if month_filter:
@@ -130,6 +187,8 @@ def process_data():
                             plots[key] = plot_gen.annual_totals(df, precip_type)
                         elif plot_type == 'monthly_distribution':
                             plots[key] = plot_gen.monthly_distribution_boxplot(df, precip_type, month_filter)
+                        elif plot_type == 'monthly_histogram':
+                            plots[key] = plot_gen.monthly_histogram(df, precip_type, month_filter)
                     except Exception as e:
                         plots[key] = None
                         print(f"Error generating {key}: {str(e)}")
@@ -199,7 +258,11 @@ def process_data():
         })
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        error_msg = str(e)
+        print(f"Error in process_data: {error_msg}")
+        print(traceback.format_exc())
+        return jsonify({'error': error_msg}), 500
 
 @app.route('/delete_file/<int:file_id>', methods=['DELETE'])
 def delete_file(file_id):

@@ -6,7 +6,13 @@ import numpy as np
 import pandas as pd
 import base64
 import io
-from scipy import stats
+# Import scipy.stats only when needed (in comparison functions)
+try:
+    from scipy import stats
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
+    stats = None
 
 class PlotGenerator:
     """Generate plots as base64 encoded images"""
@@ -218,8 +224,80 @@ class PlotGenerator:
         
         return self._fig_to_base64(fig)
     
+    def monthly_histogram(self, df, precip_type='rain', month_filter=None):
+        """Histogram of precipitation for selected individual months"""
+        col_name = 'Rain_mm' if precip_type == 'rain' else 'Snow_mm'
+        
+        if col_name not in df.columns:
+            raise ValueError(f"Column {col_name} not found in dataframe")
+        
+        # Filter by selected months if provided
+        if month_filter and len(month_filter) > 0:
+            df = df[df['Month'].isin(month_filter)]
+        
+        # Calculate monthly totals for each year-month combination
+        monthly_totals = df.groupby(['Year', 'Month'])[col_name].sum().reset_index()
+        
+        # Get months to plot
+        months_to_plot = sorted(monthly_totals['Month'].unique()) if month_filter and len(month_filter) > 0 else sorted(monthly_totals['Month'].unique())
+        
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        
+        # Determine number of subplots needed
+        n_months = len(months_to_plot)
+        if n_months == 0:
+            raise ValueError("No months to plot")
+        
+        # Create subplots - arrange in a grid
+        cols = min(3, n_months)
+        rows = (n_months + cols - 1) // cols
+        
+        fig, axes = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
+        if n_months == 1:
+            axes = [axes]
+        else:
+            axes = axes.flatten()
+        
+        for idx, month in enumerate(months_to_plot):
+            month_data = monthly_totals[monthly_totals['Month'] == month][col_name].values
+            
+            if len(month_data) == 0:
+                continue
+            
+            ax = axes[idx]
+            
+            # Create histogram
+            n_bins = min(15, max(5, len(month_data) // 3))  # Adaptive number of bins
+            ax.hist(month_data, bins=n_bins, color='steelblue', edgecolor='white', alpha=0.7)
+            
+            # Add mean line
+            mean_val = month_data.mean()
+            ax.axvline(mean_val, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_val:.1f} mm')
+            
+            # Add median line
+            median_val = np.median(month_data)
+            ax.axvline(median_val, color='orange', linestyle='--', linewidth=2, label=f'Median: {median_val:.1f} mm')
+            
+            ax.set_xlabel(f'{precip_type.capitalize()} (mm)', fontsize=10)
+            ax.set_ylabel('Frequency', fontsize=10)
+            ax.set_title(f'{month_names[month-1]} - {precip_type.capitalize()} Distribution', fontsize=11, fontweight='bold')
+            ax.legend(fontsize=9)
+            ax.grid(True, alpha=0.3)
+        
+        # Hide unused subplots
+        for idx in range(n_months, len(axes)):
+            axes[idx].axis('off')
+        
+        plt.tight_layout()
+        return self._fig_to_base64(fig)
+    
     def operating_vs_climatology_histogram(self, df_op, df_clim, precip_type='rain'):
         """Overlay histogram comparing operating period vs climatology"""
+        try:
+            from scipy import stats
+        except ImportError:
+            stats = None
         col_name = 'Rain_mm' if precip_type == 'rain' else 'Snow_mm'
         
         # Calculate monthly totals
@@ -294,7 +372,8 @@ class PlotGenerator:
             ('monthly_climatology', self.monthly_climatology),
             ('seasonal_boxplot', self.seasonal_boxplot),
             ('annual_totals', self.annual_totals),
-            ('monthly_distribution', self.monthly_distribution_boxplot)
+            ('monthly_distribution', self.monthly_distribution_boxplot),
+            ('monthly_histogram', self.monthly_histogram)
         ]
         
         for precip_type in ['rain', 'snow']:
