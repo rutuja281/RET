@@ -91,13 +91,23 @@ def upload_file():
                 return jsonify({'error': 'File processed but contains no valid data rows'}), 400
             
             # Save to database
+            # Convert pandas Timestamp to Python datetime for database
+            date_start = df['timestamp'].min()
+            date_end = df['timestamp'].max()
+            
+            # Convert to Python datetime if it's a pandas Timestamp
+            if hasattr(date_start, 'to_pydatetime'):
+                date_start = date_start.to_pydatetime()
+            if hasattr(date_end, 'to_pydatetime'):
+                date_end = date_end.to_pydatetime()
+            
             data_file = DataFile(
                 filename=unique_filename,
                 original_filename=filename,
                 file_path=filepath,
                 rows_count=len(df),
-                date_range_start=df['timestamp'].min(),
-                date_range_end=df['timestamp'].max()
+                date_range_start=date_start,
+                date_range_end=date_end
             )
             db.session.add(data_file)
             db.session.commit()
