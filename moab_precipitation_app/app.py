@@ -187,6 +187,8 @@ def process_data():
                             plots[key] = plot_gen.annual_totals(df, precip_type)
                         elif plot_type == 'monthly_distribution':
                             plots[key] = plot_gen.monthly_distribution_boxplot(df, precip_type, month_filter)
+                        elif plot_type == 'monthly_histogram':
+                            plots[key] = plot_gen.monthly_histogram(df, precip_type, month_filter)
                     except Exception as e:
                         plots[key] = None
                         print(f"Error generating {key}: {str(e)}")
