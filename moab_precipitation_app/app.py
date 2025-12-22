@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify
 import os
+import sys
 import traceback
 from werkzeug.utils import secure_filename
 from datetime import datetime
@@ -128,8 +129,9 @@ def upload_file():
                 except:
                     pass
             error_msg = f'Error processing file: {str(e)}'
-            print(f"Upload error: {error_msg}")
-            print(traceback.format_exc())
+            tb_str = traceback.format_exc()
+            print(f"Upload error: {error_msg}", file=sys.stderr, flush=True)
+            print(tb_str, file=sys.stderr, flush=True)
             return jsonify({'error': error_msg}), 400
     
     return jsonify({'error': 'Invalid file type. Please upload a CSV file.'}), 400
@@ -169,40 +171,54 @@ def process_data():
             processor = DataProcessor(data_file.file_path)
             df, _ = processor.process()
         except Exception as e:
-            import traceback
             error_msg = f'Error processing data file: {str(e)}'
-            print(f"Data processing error: {error_msg}")
-            print(traceback.format_exc())
+            tb_str = traceback.format_exc()
+            print(f"Data processing error: {error_msg}", file=sys.stderr, flush=True)
+            print(tb_str, file=sys.stderr, flush=True)
             return jsonify({'error': error_msg}), 500
         
         # Convert month strings to integers
         if month_filter:
-            month_filter = [int(m) for m in month_filter]
+            try:
+                month_filter = [int(m) for m in month_filter]
+            except (ValueError, TypeError) as e:
+                error_msg = f'Invalid month filter: {str(e)}'
+                print(f"Month filter error: {error_msg}", file=sys.stderr, flush=True)
+                return jsonify({'error': error_msg}), 400
         
         # Generate regular plots
-        if generate_all:
-            plots = plot_gen.generate_all_plots(df, month_filter, season_filter)
-        else:
-            plots = {}
-            for plot_type in plot_types:
-                for precip_type in ['rain', 'snow']:
-                    key = f'{precip_type}_{plot_type}'
-                    try:
-                        if plot_type == 'monthly_heatmap':
-                            plots[key] = plot_gen.monthly_totals_heatmap(df, precip_type, month_filter)
-                        elif plot_type == 'monthly_climatology':
-                            plots[key] = plot_gen.monthly_climatology(df, precip_type, month_filter)
-                        elif plot_type == 'seasonal_boxplot':
-                            plots[key] = plot_gen.seasonal_boxplot(df, precip_type, season_filter)
-                        elif plot_type == 'annual_totals':
-                            plots[key] = plot_gen.annual_totals(df, precip_type)
-                        elif plot_type == 'monthly_distribution':
-                            plots[key] = plot_gen.monthly_distribution_boxplot(df, precip_type, month_filter)
-                        elif plot_type == 'monthly_histogram':
-                            plots[key] = plot_gen.monthly_histogram(df, precip_type, month_filter)
-                    except Exception as e:
-                        plots[key] = None
-                        print(f"Error generating {key}: {str(e)}")
+        try:
+            if generate_all:
+                plots = plot_gen.generate_all_plots(df, month_filter, season_filter)
+            else:
+                plots = {}
+                for plot_type in plot_types:
+                    for precip_type in ['rain', 'snow']:
+                        key = f'{precip_type}_{plot_type}'
+                        try:
+                            if plot_type == 'monthly_heatmap':
+                                plots[key] = plot_gen.monthly_totals_heatmap(df, precip_type, month_filter)
+                            elif plot_type == 'monthly_climatology':
+                                plots[key] = plot_gen.monthly_climatology(df, precip_type, month_filter)
+                            elif plot_type == 'seasonal_boxplot':
+                                plots[key] = plot_gen.seasonal_boxplot(df, precip_type, season_filter)
+                            elif plot_type == 'annual_totals':
+                                plots[key] = plot_gen.annual_totals(df, precip_type)
+                            elif plot_type == 'monthly_distribution':
+                                plots[key] = plot_gen.monthly_distribution_boxplot(df, precip_type, month_filter)
+                            elif plot_type == 'monthly_histogram':
+                                plots[key] = plot_gen.monthly_histogram(df, precip_type, month_filter)
+                        except Exception as e:
+                            plots[key] = None
+                            tb_str = traceback.format_exc()
+                            print(f"Error generating {key}: {str(e)}", file=sys.stderr, flush=True)
+                            print(tb_str, file=sys.stderr, flush=True)
+        except Exception as e:
+            error_msg = f'Error generating plots: {str(e)}'
+            tb_str = traceback.format_exc()
+            print(error_msg, file=sys.stderr, flush=True)
+            print(tb_str, file=sys.stderr, flush=True)
+            return jsonify({'error': error_msg}), 500
         
         # Generate comparison plots if enabled
         comparison_plots = {}
@@ -212,10 +228,15 @@ def process_data():
             try:
                 from scipy import stats
                 
-                op_start_dt = pd.to_datetime(op_start)
-                op_end_dt = pd.to_datetime(op_end)
-                clim_start_dt = pd.to_datetime(clim_start)
-                clim_end_dt = pd.to_datetime(clim_end)
+                try:
+                    op_start_dt = pd.to_datetime(op_start)
+                    op_end_dt = pd.to_datetime(op_end)
+                    clim_start_dt = pd.to_datetime(clim_start)
+                    clim_end_dt = pd.to_datetime(clim_end)
+                except Exception as e:
+                    error_msg = f'Error parsing date strings: {str(e)}'
+                    print(error_msg, file=sys.stderr, flush=True)
+                    return jsonify({'error': error_msg}), 400
                 
                 # Filter data by periods
                 df_operating = df[(df['timestamp'] >= op_start_dt) & (df['timestamp'] <= op_end_dt)]
@@ -257,9 +278,19 @@ def process_data():
                                 'cohens_d': float(cohens_d)
                             }
                         except Exception as e:
-                            print(f"Error generating comparison plots for {precip_type}: {str(e)}")
+                            tb_str = traceback.format_exc()
+                            print(f"Error generating comparison plots for {precip_type}: {str(e)}", file=sys.stderr, flush=True)
+                            print(tb_str, file=sys.stderr, flush=True)
+                else:
+                    error_msg = f'No data in selected periods: operating={len(df_operating)}, climatology={len(df_climatology)}'
+                    print(error_msg, file=sys.stderr, flush=True)
+                    return jsonify({'error': error_msg}), 400
             except Exception as e:
-                print(f"Error in comparison analysis: {str(e)}")
+                error_msg = f'Error in comparison analysis: {str(e)}'
+                tb_str = traceback.format_exc()
+                print(error_msg, file=sys.stderr, flush=True)
+                print(tb_str, file=sys.stderr, flush=True)
+                return jsonify({'error': error_msg}), 500
         
         return jsonify({
             'plots': plots, 
@@ -269,10 +300,10 @@ def process_data():
         })
     
     except Exception as e:
-        import traceback
         error_msg = str(e)
-        print(f"Error in process_data: {error_msg}")
-        print(traceback.format_exc())
+        tb_str = traceback.format_exc()
+        print(f"Error in process_data: {error_msg}", file=sys.stderr, flush=True)
+        print(tb_str, file=sys.stderr, flush=True)
         return jsonify({'error': error_msg}), 500
 
 @app.route('/delete_file/<int:file_id>', methods=['DELETE'])
