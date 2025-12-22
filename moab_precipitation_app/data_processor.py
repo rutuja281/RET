@@ -10,6 +10,7 @@ class DataProcessor:
         self.filepath = filepath
         self.header_row = header_row
         self.file_format = None  # 'meteoblue' or 'synopticx'
+        self.time_granularity_minutes = 60  # Default to hourly (60 minutes)
         self.df = None
         
     def detect_file_format(self):
@@ -72,6 +73,13 @@ class DataProcessor:
             if df['timestamp'].dt.tz is not None:
                 df['timestamp'] = df['timestamp'].dt.tz_localize(None)
             df = df.dropna(subset=['timestamp'])
+            
+            # Detect time granularity
+            if len(df) > 1:
+                time_diff = df['timestamp'].diff().iloc[1]
+                self.time_granularity_minutes = time_diff.total_seconds() / 60
+            else:
+                self.time_granularity_minutes = 60  # Default to hourly if can't determine
         else:
             raise ValueError(f"Date_Time column not found in SynopticX file. Columns: {list(df.columns)}")
         
@@ -93,7 +101,7 @@ class DataProcessor:
             'wind_gust_set_1': 'Wind_Gust',
             'snow_depth_set_1': 'Snow_Depth',
             'precip_accum_ten_minute_set_1': 'Precipitation_Total',
-            'estimated_snowfall_rate_set_1': 'Snowfall_Amount'
+            'estimated_snowfall_rate_set_1': 'Snowfall_Rate'  # Keep as rate for now
         }
         
         for old_col, new_col in column_mapping.items():
@@ -102,13 +110,6 @@ class DataProcessor:
         
         # Rename columns
         df = df.rename(columns=rename_map)
-        
-        # For SynopticX, precipitation is already in mm, but snowfall rate might need conversion
-        # Snowfall rate is in mm/hour, we may need to convert to accumulated snow
-        # For now, we'll treat estimated_snowfall_rate as snowfall amount (if available)
-        # If Snowfall_Amount exists, keep it; otherwise set to 0
-        if 'Snowfall_Amount' not in df.columns or df['Snowfall_Amount'].isna().all():
-            df['Snowfall_Amount'] = 0
         
         return df
     
@@ -235,39 +236,60 @@ class DataProcessor:
         return df
     
     def separate_precipitation(self, df):
-        """Separate rain from snow"""
+        """Separate rain from snow, handling different file formats and granularities"""
         # Find columns
         precip_col = None
         snow_col = None
+        snow_rate_col = None
         
         for c in df.columns:
             if 'Precipitation' in c and 'Total' in c:
                 precip_col = c
-            if 'Snowfall' in c:
+            if 'Snowfall' in c and 'Rate' in c:
+                snow_rate_col = c
+            elif 'Snowfall' in c and 'Amount' in c:
                 snow_col = c
         
         if not precip_col:
             raise ValueError("Precipitation column not found")
         
-        # Calculate rain = total precipitation - snowfall
-        if snow_col and snow_col in df.columns:
-            # Check if snowfall is in cm (MeteoBlue) or mm (SynopticX)
-            # MeteoBlue typically has snowfall in cm, SynopticX uses mm
-            if self.file_format == 'synopticx':
-                # SynopticX: snowfall rate might be in mm/hour, but we'll use as-is
-                # For SynopticX, if we have estimated_snowfall_rate, use it directly (already in mm)
+        # Convert precipitation to numeric
+        precip_values = pd.to_numeric(df[precip_col], errors='coerce').fillna(0)
+        
+        if self.file_format == 'synopticx':
+            # For SynopticX:
+            # - precip_accum_ten_minute_set_1 is already accumulated (mm per time period)
+            # - estimated_snowfall_rate_set_1 is a rate in mm/hour
+            # Need to convert rate to accumulation based on time granularity
+            
+            if snow_rate_col and snow_rate_col in df.columns:
+                # Convert snowfall rate (mm/hour) to accumulation (mm) for the time period
+                # rate (mm/hr) * (granularity_minutes / 60 min/hr) = accumulation (mm) for that period
+                snow_rate = pd.to_numeric(df[snow_rate_col], errors='coerce').fillna(0)
+                df['Snow_mm'] = snow_rate * (self.time_granularity_minutes / 60.0)
+            elif snow_col and snow_col in df.columns:
+                # If we have snowfall amount directly, use it
                 df['Snow_mm'] = pd.to_numeric(df[snow_col], errors='coerce').fillna(0)
             else:
+                df['Snow_mm'] = 0
+            
+            # For SynopticX, precipitation is already accumulated per time period
+            # When summing for monthly/seasonal totals, the sum will be correct
+            # rain = total precipitation - snowfall accumulation
+            df['Rain_mm'] = (precip_values - df['Snow_mm']).clip(lower=0)
+            
+        else:
+            # For MeteoBlue:
+            # - Precipitation is typically hourly accumulated (mm)
+            # - Snowfall is typically in cm, needs conversion to mm
+            if snow_col and snow_col in df.columns:
                 # MeteoBlue: snowfall is typically in cm, convert to mm
                 df['Snow_mm'] = pd.to_numeric(df[snow_col], errors='coerce').fillna(0) * 10
+            else:
+                df['Snow_mm'] = 0
             
-            # Calculate rain
-            precip_values = pd.to_numeric(df[precip_col], errors='coerce').fillna(0)
+            # Calculate rain = total precipitation - snowfall
             df['Rain_mm'] = (precip_values - df['Snow_mm']).clip(lower=0)
-        else:
-            # If no snow column, assume all precipitation is rain
-            df['Rain_mm'] = pd.to_numeric(df[precip_col], errors='coerce').fillna(0)
-            df['Snow_mm'] = 0
         
         return df, precip_col
     
