@@ -15,6 +15,14 @@ db.init_app(app)
 
 plot_gen = PlotGenerator()
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Handle all exceptions and return JSON error response"""
+    error_msg = str(e)
+    print(f"Unhandled exception: {error_msg}")
+    print(traceback.format_exc())
+    return jsonify({'error': error_msg}), 500
+
 # Create upload directory
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
