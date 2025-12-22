@@ -57,6 +57,10 @@ def upload_file():
             processor = DataProcessor(filepath)
             df, _ = processor.process()
             
+            # Validate that we have data
+            if len(df) == 0:
+                raise ValueError("File processed but contains no valid data rows")
+            
             # Save to database
             data_file = DataFile(
                 filename=unique_filename,

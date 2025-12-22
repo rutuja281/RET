@@ -68,11 +68,19 @@ class DataProcessor:
         
         # Parse timestamp - SynopticX uses Date_Time column with format like "2020-09-30T02:40:00-0600"
         if 'Date_Time' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['Date_Time'], errors='coerce', utc=True)
-            # Remove timezone for consistency
-            if df['timestamp'].dt.tz is not None:
-                df['timestamp'] = df['timestamp'].dt.tz_localize(None)
-            df = df.dropna(subset=['timestamp'])
+            try:
+                df['timestamp'] = pd.to_datetime(df['Date_Time'], errors='coerce', utc=True)
+                # Convert to naive datetime (remove timezone) for consistency
+                if df['timestamp'].dt.tz is not None:
+                    df['timestamp'] = df['timestamp'].dt.tz_convert(None)
+                df = df.dropna(subset=['timestamp'])
+            except Exception as e:
+                # Fallback: try parsing without UTC
+                try:
+                    df['timestamp'] = pd.to_datetime(df['Date_Time'], errors='coerce')
+                    df = df.dropna(subset=['timestamp'])
+                except Exception as e2:
+                    raise ValueError(f"Could not parse Date_Time column: {str(e)}. Fallback also failed: {str(e2)}")
             
             # Detect time granularity
             if len(df) > 1:
