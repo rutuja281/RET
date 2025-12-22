@@ -125,7 +125,24 @@ function generatePlots() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data)
     })
-    .then(response => response.json())
+    .then(response => {
+        // Check if response is ok before parsing JSON
+        if (!response.ok) {
+            // Try to get error message from response
+            return response.text().then(text => {
+                try {
+                    const json = JSON.parse(text);
+                    throw new Error(json.error || `Server error: ${response.status}`);
+                } catch (e) {
+                    if (e instanceof SyntaxError) {
+                        throw new Error(`Server error: ${response.status} - ${text.substring(0, 100)}`);
+                    }
+                    throw e;
+                }
+            });
+        }
+        return response.json();
+    })
     .then(data => {
         generateSpinner.classList.add('d-none');
         if (data.success && data.plots) {
@@ -139,6 +156,7 @@ function generatePlots() {
     .catch(error => {
         generateSpinner.classList.add('d-none');
         resultsDiv.innerHTML = `<div class="col-12"><div class="alert alert-danger">Error: ${error.message}</div></div>`;
+        console.error('Error details:', error);
     });
 }
 
