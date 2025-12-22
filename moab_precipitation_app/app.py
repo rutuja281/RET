@@ -15,13 +15,35 @@ db.init_app(app)
 
 plot_gen = PlotGenerator()
 
+@app.errorhandler(404)
+def handle_404(e):
+    """Handle 404 errors"""
+    if request.path.startswith('/process') or request.path.startswith('/upload'):
+        return jsonify({'error': 'Endpoint not found'}), 404
+    return e
+
+@app.errorhandler(500)
+def handle_500(e):
+    """Handle 500 errors"""
+    error_msg = str(e)
+    print(f"Server error: {error_msg}")
+    print(traceback.format_exc())
+    if request.path.startswith('/process') or request.path.startswith('/upload'):
+        return jsonify({'error': f'Server error: {error_msg}'}), 500
+    return e
+
 @app.errorhandler(Exception)
 def handle_exception(e):
-    """Handle all exceptions and return JSON error response"""
+    """Handle all other exceptions and return JSON error response for API endpoints"""
     error_msg = str(e)
     print(f"Unhandled exception: {error_msg}")
     print(traceback.format_exc())
-    return jsonify({'error': error_msg}), 500
+    
+    # Only return JSON for API endpoints
+    if request.path.startswith('/process') or request.path.startswith('/upload'):
+        return jsonify({'error': error_msg}), 500
+    # For other routes, let Flask handle it
+    raise e
 
 # Create upload directory
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -59,7 +81,9 @@ def upload_file():
             
             # Validate that we have data
             if len(df) == 0:
-                raise ValueError("File processed but contains no valid data rows")
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                return jsonify({'error': 'File processed but contains no valid data rows'}), 400
             
             # Save to database
             data_file = DataFile(
@@ -83,8 +107,14 @@ def upload_file():
         except Exception as e:
             # Clean up file if processing fails
             if os.path.exists(filepath):
-                os.remove(filepath)
-            return jsonify({'error': f'Error processing file: {str(e)}'}), 400
+                try:
+                    os.remove(filepath)
+                except:
+                    pass
+            error_msg = f'Error processing file: {str(e)}'
+            print(f"Upload error: {error_msg}")
+            print(traceback.format_exc())
+            return jsonify({'error': error_msg}), 400
     
     return jsonify({'error': 'Invalid file type. Please upload a CSV file.'}), 400
 
