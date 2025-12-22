@@ -125,23 +125,35 @@ function generatePlots() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data)
     })
-    .then(response => {
+    .then(async response => {
         // Check if response is ok before parsing JSON
         if (!response.ok) {
             // Try to get error message from response
-            return response.text().then(text => {
-                try {
-                    const json = JSON.parse(text);
-                    throw new Error(json.error || `Server error: ${response.status}`);
-                } catch (e) {
-                    if (e instanceof SyntaxError) {
-                        throw new Error(`Server error: ${response.status} - ${text.substring(0, 100)}`);
-                    }
-                    throw e;
+            const text = await response.text();
+            try {
+                const json = JSON.parse(text);
+                throw new Error(json.error || `Server error: ${response.status}`);
+            } catch (e) {
+                if (e instanceof SyntaxError) {
+                    // Not JSON, return the text or a generic error
+                    throw new Error(`Server error (${response.status}): ${text.substring(0, 200) || 'Unknown error'}`);
                 }
-            });
+                throw e;
+            }
         }
-        return response.json();
+        
+        // Get response text first to check if it's empty
+        const text = await response.text();
+        if (!text || text.trim() === '') {
+            throw new Error('Empty response from server');
+        }
+        
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            console.error('JSON parse error. Response text:', text.substring(0, 500));
+            throw new Error(`Invalid JSON response: ${e.message}`);
+        }
     })
     .then(data => {
         generateSpinner.classList.add('d-none');
