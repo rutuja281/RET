@@ -20,29 +20,34 @@ def handle_404(e):
     """Handle 404 errors"""
     if request.path.startswith('/process') or request.path.startswith('/upload'):
         return jsonify({'error': 'Endpoint not found'}), 404
-    return e
+    # For other routes, use default Flask 404 handling
+    from flask import render_template
+    return render_template('404.html'), 404 if os.path.exists('templates/404.html') else (str(e), 404)
 
 @app.errorhandler(500)
 def handle_500(e):
     """Handle 500 errors"""
-    error_msg = str(e)
+    error_msg = str(e) if hasattr(e, '__str__') else 'Internal server error'
     print(f"Server error: {error_msg}")
     print(traceback.format_exc())
+    
+    # Return JSON for API endpoints
     if request.path.startswith('/process') or request.path.startswith('/upload'):
         return jsonify({'error': f'Server error: {error_msg}'}), 500
-    return e
+    # For other routes, return error page
+    return jsonify({'error': error_msg}), 500
 
 @app.errorhandler(Exception)
 def handle_exception(e):
     """Handle all other exceptions and return JSON error response for API endpoints"""
-    error_msg = str(e)
+    error_msg = str(e) if hasattr(e, '__str__') else 'Unknown error'
     print(f"Unhandled exception: {error_msg}")
     print(traceback.format_exc())
     
-    # Only return JSON for API endpoints
-    if request.path.startswith('/process') or request.path.startswith('/upload'):
+    # Return JSON for API endpoints
+    if request.path.startswith('/process') or request.path.startswith('/upload') or request.path.startswith('/delete_file'):
         return jsonify({'error': error_msg}), 500
-    # For other routes, let Flask handle it
+    # For other routes, re-raise to use default Flask handling
     raise e
 
 # Create upload directory
