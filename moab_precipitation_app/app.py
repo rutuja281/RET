@@ -15,6 +15,14 @@ db.init_app(app)
 
 plot_gen = PlotGenerator()
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Handle all exceptions and return JSON error response"""
+    error_msg = str(e)
+    print(f"Unhandled exception: {error_msg}")
+    print(traceback.format_exc())
+    return jsonify({'error': error_msg}), 500
+
 # Create upload directory
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
@@ -49,6 +57,10 @@ def upload_file():
             processor = DataProcessor(filepath)
             df, _ = processor.process()
             
+            # Validate that we have data
+            if len(df) == 0:
+                raise ValueError("File processed but contains no valid data rows")
+            
             # Save to database
             data_file = DataFile(
                 filename=unique_filename,
@@ -81,6 +93,9 @@ def process_data():
     """Process data and generate plots based on user selections"""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data received'}), 400
+        
         file_id = data.get('file_id')
         month_filter = data.get('months', [])
         season_filter = data.get('seasons', [])
@@ -104,8 +119,15 @@ def process_data():
             return jsonify({'error': 'File not found on server'}), 404
         
         # Process data
-        processor = DataProcessor(data_file.file_path)
-        df, _ = processor.process()
+        try:
+            processor = DataProcessor(data_file.file_path)
+            df, _ = processor.process()
+        except Exception as e:
+            import traceback
+            error_msg = f'Error processing data file: {str(e)}'
+            print(f"Data processing error: {error_msg}")
+            print(traceback.format_exc())
+            return jsonify({'error': error_msg}), 500
         
         # Convert month strings to integers
         if month_filter:
@@ -199,7 +221,11 @@ def process_data():
         })
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        error_msg = str(e)
+        print(f"Error in process_data: {error_msg}")
+        print(traceback.format_exc())
+        return jsonify({'error': error_msg}), 500
 
 @app.route('/delete_file/<int:file_id>', methods=['DELETE'])
 def delete_file(file_id):

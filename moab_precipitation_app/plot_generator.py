@@ -6,7 +6,13 @@ import numpy as np
 import pandas as pd
 import base64
 import io
-from scipy import stats
+# Import scipy.stats only when needed (in comparison functions)
+try:
+    from scipy import stats
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
+    stats = None
 
 class PlotGenerator:
     """Generate plots as base64 encoded images"""
@@ -220,6 +226,10 @@ class PlotGenerator:
     
     def operating_vs_climatology_histogram(self, df_op, df_clim, precip_type='rain'):
         """Overlay histogram comparing operating period vs climatology"""
+        try:
+            from scipy import stats
+        except ImportError:
+            stats = None
         col_name = 'Rain_mm' if precip_type == 'rain' else 'Snow_mm'
         
         # Calculate monthly totals
