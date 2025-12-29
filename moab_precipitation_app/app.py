@@ -171,6 +171,8 @@ def upload_file():
 @app.route('/process', methods=['POST'])
 def process_data():
     """Process data and generate plots based on user selections"""
+    import gc  # For garbage collection
+    
     try:
         data = request.get_json()
         if not data:
@@ -202,6 +204,8 @@ def process_data():
         try:
             processor = DataProcessor(data_file.file_path)
             df, _ = processor.process()
+            # Force garbage collection after processing to free memory
+            gc.collect()
         except Exception as e:
             error_msg = f'Error processing data file: {str(e)}'
             tb_str = traceback.format_exc()
@@ -219,11 +223,11 @@ def process_data():
                 return jsonify({'error': error_msg}), 400
         
         # Generate regular plots
+        plots = {}
         try:
             if generate_all:
                 plots = plot_gen.generate_all_plots(df, month_filter, season_filter)
             else:
-                plots = {}
                 for plot_type in plot_types:
                     for precip_type in ['rain', 'snow']:
                         key = f'{precip_type}_{plot_type}'
@@ -240,11 +244,15 @@ def process_data():
                                 plots[key] = plot_gen.monthly_distribution_boxplot(df, precip_type, month_filter)
                             elif plot_type == 'monthly_histogram':
                                 plots[key] = plot_gen.monthly_histogram(df, precip_type, month_filter)
+                            # Force garbage collection after each plot to free memory
+                            gc.collect()
                         except Exception as e:
                             plots[key] = None
                             tb_str = traceback.format_exc()
                             print(f"Error generating {key}: {str(e)}", file=sys.stderr, flush=True)
                             print(tb_str, file=sys.stderr, flush=True)
+            # Force garbage collection after plot generation
+            gc.collect()
         except Exception as e:
             error_msg = f'Error generating plots: {str(e)}'
             tb_str = traceback.format_exc()
@@ -324,12 +332,26 @@ def process_data():
                 print(tb_str, file=sys.stderr, flush=True)
                 return jsonify({'error': error_msg}), 500
         
-        return jsonify({
-            'plots': plots, 
-            'comparison_plots': comparison_plots,
-            'comparison_stats': comparison_stats,
-            'success': True
-        })
+        # Prepare response - filter out None values and ensure all values are serializable
+        try:
+            # Clean up plots dictionary - remove None values to reduce response size
+            cleaned_plots = {k: v for k, v in plots.items() if v is not None}
+            cleaned_comparison_plots = {k: v for k, v in comparison_plots.items() if v is not None}
+            
+            response_data = {
+                'plots': cleaned_plots, 
+                'comparison_plots': cleaned_comparison_plots,
+                'comparison_stats': comparison_stats,
+                'success': True
+            }
+            
+            return jsonify(response_data)
+        except Exception as e:
+            error_msg = f'Error serializing response: {str(e)}'
+            tb_str = traceback.format_exc()
+            print(error_msg, file=sys.stderr, flush=True)
+            print(tb_str, file=sys.stderr, flush=True)
+            return jsonify({'error': error_msg}), 500
     
     except Exception as e:
         error_msg = str(e)
