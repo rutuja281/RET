@@ -47,7 +47,20 @@ function uploadFile() {
         method: 'POST',
         body: formData
     })
-    .then(response => response.json())
+    .then(response => {
+        // Check if response is OK
+        if (!response.ok) {
+            // Try to parse as JSON, but if it fails, return text
+            return response.text().then(text => {
+                try {
+                    return Promise.reject(JSON.parse(text));
+                } catch {
+                    return Promise.reject({error: text || `Server error: ${response.status} ${response.statusText}`});
+                }
+            });
+        }
+        return response.json();
+    })
     .then(data => {
         uploadSpinner.classList.add('d-none');
         if (data.success) {
@@ -60,12 +73,13 @@ function uploadFile() {
             // Reload page after 2 seconds to show new file
             setTimeout(() => location.reload(), 2000);
         } else {
-            uploadStatus.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            uploadStatus.innerHTML = `<div class="alert alert-danger">${data.error || 'Unknown error'}</div>`;
         }
     })
     .catch(error => {
         uploadSpinner.classList.add('d-none');
-        uploadStatus.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+        const errorMsg = error.error || error.message || 'Unknown error occurred';
+        uploadStatus.innerHTML = `<div class="alert alert-danger">Error: ${errorMsg}</div>`;
     });
 }
 
