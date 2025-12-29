@@ -195,7 +195,9 @@ def process_data():
             return jsonify({'error': 'No file selected'}), 400
         
         # Get file from database
-        data_file = DataFile.query.get_or_404(file_id)
+        data_file = DataFile.query.get(file_id)
+        if not data_file:
+            return jsonify({'error': f'File with ID {file_id} not found'}), 404
         
         if not os.path.exists(data_file.file_path):
             return jsonify({'error': 'File not found on server'}), 404
@@ -364,12 +366,16 @@ def process_data():
 def delete_file(file_id):
     """Delete a file from database (soft delete)"""
     try:
-        data_file = DataFile.query.get_or_404(file_id)
+        data_file = DataFile.query.get(file_id)
+        if not data_file:
+            return jsonify({'error': f'File with ID {file_id} not found'}), 404
         data_file.is_active = False
         db.session.commit()
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        error_msg = str(e)
+        print(f"Error deleting file: {error_msg}", file=sys.stderr, flush=True)
+        return jsonify({'error': error_msg}), 500
 
 if __name__ == '__main__':
     with app.app_context():
