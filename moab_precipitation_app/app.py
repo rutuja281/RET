@@ -20,7 +20,12 @@ plot_gen = PlotGenerator()
 @app.errorhandler(404)
 def handle_404(e):
     """Handle 404 errors"""
-    if request.path.startswith('/process') or request.path.startswith('/upload'):
+    try:
+        # Check if this is an API endpoint
+        if hasattr(request, 'path') and (request.path.startswith('/process') or request.path.startswith('/upload') or request.path.startswith('/delete_file')):
+            return jsonify({'error': 'Endpoint not found'}), 404
+    except RuntimeError:
+        # Request context not available, assume API endpoint
         return jsonify({'error': 'Endpoint not found'}), 404
     # For other routes, use default Flask 404 handling
     from flask import render_template
@@ -30,27 +35,37 @@ def handle_404(e):
 def handle_500(e):
     """Handle 500 errors"""
     error_msg = str(e) if hasattr(e, '__str__') else 'Internal server error'
-    print(f"Server error: {error_msg}")
-    print(traceback.format_exc())
+    tb_str = traceback.format_exc()
+    print(f"Server error: {error_msg}", file=sys.stderr, flush=True)
+    print(tb_str, file=sys.stderr, flush=True)
     
     # Return JSON for API endpoints
-    if request.path.startswith('/process') or request.path.startswith('/upload'):
-        return jsonify({'error': f'Server error: {error_msg}'}), 500
-    # For other routes, return error page
+    try:
+        if hasattr(request, 'path') and (request.path.startswith('/process') or request.path.startswith('/upload') or request.path.startswith('/delete_file')):
+            return jsonify({'error': f'Server error: {error_msg}'}), 500
+    except RuntimeError:
+        # Request context not available, assume API endpoint
+        pass
+    # Always return JSON to be safe
     return jsonify({'error': error_msg}), 500
 
 @app.errorhandler(Exception)
 def handle_exception(e):
     """Handle all other exceptions and return JSON error response for API endpoints"""
     error_msg = str(e) if hasattr(e, '__str__') else 'Unknown error'
-    print(f"Unhandled exception: {error_msg}")
-    print(traceback.format_exc())
+    tb_str = traceback.format_exc()
+    print(f"Unhandled exception: {error_msg}", file=sys.stderr, flush=True)
+    print(tb_str, file=sys.stderr, flush=True)
     
     # Return JSON for API endpoints
-    if request.path.startswith('/process') or request.path.startswith('/upload') or request.path.startswith('/delete_file'):
-        return jsonify({'error': error_msg}), 500
-    # For other routes, re-raise to use default Flask handling
-    raise e
+    try:
+        if hasattr(request, 'path') and (request.path.startswith('/process') or request.path.startswith('/upload') or request.path.startswith('/delete_file')):
+            return jsonify({'error': error_msg}), 500
+    except RuntimeError:
+        # Request context not available, assume API endpoint
+        pass
+    # Always return JSON for exceptions to avoid HTML error pages
+    return jsonify({'error': error_msg}), 500
 
 # Create upload directory
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -67,19 +82,31 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     """Handle file upload"""
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
-    
-    if file and allowed_file(file.filename):
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not file or not allowed_file(file.filename):
+            return jsonify({'error': 'Invalid file type. Please upload a CSV file.'}), 400
+        
+        # Ensure upload directory exists
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        
         filename = secure_filename(file.filename)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         unique_filename = f"{timestamp}_{filename}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-        file.save(filepath)
+        
+        try:
+            file.save(filepath)
+        except Exception as e:
+            error_msg = f'Error saving file: {str(e)}'
+            print(error_msg, file=sys.stderr, flush=True)
+            return jsonify({'error': error_msg}), 500
         
         try:
             # Process file to get metadata
