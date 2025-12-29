@@ -160,8 +160,13 @@ def upload_file():
             print(f"Upload error: {error_msg}", file=sys.stderr, flush=True)
             print(tb_str, file=sys.stderr, flush=True)
             return jsonify({'error': error_msg}), 400
-    
-    return jsonify({'error': 'Invalid file type. Please upload a CSV file.'}), 400
+    except Exception as e:
+        # Catch any other errors in the upload endpoint
+        error_msg = f'Error in upload endpoint: {str(e)}'
+        tb_str = traceback.format_exc()
+        print(error_msg, file=sys.stderr, flush=True)
+        print(tb_str, file=sys.stderr, flush=True)
+        return jsonify({'error': error_msg}), 500
 
 @app.route('/process', methods=['POST'])
 def process_data():
