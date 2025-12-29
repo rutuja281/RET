@@ -31,12 +31,27 @@ class PlotGenerator:
         
     def _fig_to_base64(self, fig):
         """Convert matplotlib figure to base64 string"""
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-        buf.seek(0)
-        img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-        plt.close(fig)
-        return img_base64
+        buf = None
+        try:
+            buf = io.BytesIO()
+            # Reduce DPI slightly to reduce memory usage and response size
+            fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+            img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+            return img_base64
+        except Exception as e:
+            raise ValueError(f"Error converting figure to base64: {str(e)}")
+        finally:
+            # Always close figure and buffer to free memory
+            try:
+                plt.close(fig)
+            except:
+                pass
+            if buf:
+                try:
+                    buf.close()
+                except:
+                    pass
     
     def monthly_totals_heatmap(self, df, precip_type='rain', month_filter=None):
         """Monthly totals heatmap for rain OR snow"""
@@ -253,21 +268,24 @@ class PlotGenerator:
         cols = min(3, n_months)
         rows = (n_months + cols - 1) // cols
         
-        fig, axes = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
-        
-        # Handle different axes shapes properly
-        if n_months == 1:
-            # Single subplot: axes is a single Axes object
-            axes = np.array([axes])
-        elif rows == 1 or cols == 1:
-            # 1D array of axes - flatten if needed, but make sure it's an array
-            if hasattr(axes, 'flatten'):
-                axes = axes.flatten()
+        try:
+            fig, axes = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
+            
+            # Handle different axes shapes properly
+            if n_months == 1:
+                # Single subplot: axes is a single Axes object
+                axes = np.array([axes])
+            elif rows == 1 or cols == 1:
+                # 1D array of axes - flatten if needed, but make sure it's an array
+                if hasattr(axes, 'flatten'):
+                    axes = axes.flatten()
+                else:
+                    axes = np.array([axes]) if not isinstance(axes, np.ndarray) else axes
             else:
-                axes = np.array([axes]) if not isinstance(axes, np.ndarray) else axes
-        else:
-            # 2D array of axes
-            axes = axes.flatten()
+                # 2D array of axes
+                axes = axes.flatten()
+        except Exception as e:
+            raise ValueError(f"Error creating subplots: {str(e)}")
         
         for idx, month in enumerate(months_to_plot):
             month_data = monthly_totals[monthly_totals['Month'] == month][col_name].values

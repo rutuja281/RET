@@ -340,12 +340,25 @@ def process_data():
             cleaned_plots = {k: v for k, v in plots.items() if v is not None}
             cleaned_comparison_plots = {k: v for k, v in comparison_plots.items() if v is not None}
             
+            # Check response size (estimate - base64 strings are roughly 4/3 of original size)
+            total_size = sum(len(v) if isinstance(v, str) else 0 for v in list(cleaned_plots.values()) + list(cleaned_comparison_plots.values()))
+            
+            # If response is too large (> 5MB), return error
+            if total_size > 5 * 1024 * 1024:
+                return jsonify({
+                    'error': 'Response too large. Please generate fewer plots at a time.',
+                    'estimated_size_mb': round(total_size / (1024 * 1024), 2)
+                }), 413  # 413 Payload Too Large
+            
             response_data = {
                 'plots': cleaned_plots, 
                 'comparison_plots': cleaned_comparison_plots,
                 'comparison_stats': comparison_stats,
                 'success': True
             }
+            
+            # Force garbage collection before returning response
+            gc.collect()
             
             return jsonify(response_data)
         except Exception as e:
