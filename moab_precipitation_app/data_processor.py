@@ -18,12 +18,20 @@ class DataProcessor:
         with open(self.filepath, 'r', encoding='utf-8-sig', errors='ignore') as f:
             first_lines = [f.readline().strip() for _ in range(15)]
         
-        # Check for SynopticX indicators
-        if any('STATION:' in line or 'SYNOPTIC' in line.upper() or 'Synoptic' in line 
-               for line in first_lines[:10]):
-            # Also check for Date_Time column (SynopticX uses this)
+        # Check for SynopticX indicators - more comprehensive detection
+        synopticx_indicators = [
+            'STATION:' in line or 
+            'SYNOPTIC' in line.upper() or 
+            'Synoptic' in line or
+            line.startswith('Station_ID,Date_Time') or
+            'Date_Time' in line and ('air_temp_set_1' in line or 'precip_accum' in line)
+            for line in first_lines[:12]
+        ]
+        
+        if any(synopticx_indicators):
+            # Find Date_Time column (SynopticX uses this)
             for i, line in enumerate(first_lines):
-                if 'Date_Time' in line:
+                if 'Date_Time' in line and ('air_temp_set_1' in line or 'precip_accum' in line or 'Station_ID' in line):
                     self.file_format = 'synopticx'
                     self.header_row = i
                     return
@@ -63,8 +71,34 @@ class DataProcessor:
         # Units row is right after header (skip it)
         # Data starts after units row
         
-        # Read with header at detected row, but skip the units row right after
-        df = pd.read_csv(self.filepath, skiprows=list(range(self.header_row)) + [self.header_row + 1])
+        # Read file: skip rows before header, skip units row after header
+        # When we skip rows, the first remaining row (header_row) becomes row 0, which pandas uses as header
+        skip_rows_before = list(range(self.header_row))
+        skip_rows_after = [self.header_row + 1]
+        skip_rows = skip_rows_before + skip_rows_after
+        
+        try:
+            # Read CSV: skip rows before and after header, first remaining row is the header
+            df = pd.read_csv(self.filepath, skiprows=skip_rows, header=0, encoding='utf-8-sig')
+            
+            # Validate that we got the Date_Time column
+            if df.empty:
+                raise ValueError("SynopticX file appears to be empty after reading")
+            if 'Date_Time' not in df.columns:
+                raise ValueError(f"Date_Time column not found after reading. Columns: {list(df.columns)}")
+        except Exception as e:
+            # Fallback: read header separately, then read data
+            try:
+                # First, read just the header row
+                header_df = pd.read_csv(self.filepath, skiprows=skip_rows_before, nrows=1, encoding='utf-8-sig')
+                if 'Date_Time' not in header_df.columns:
+                    raise ValueError(f"Date_Time column not found in header. Columns: {list(header_df.columns)}")
+                
+                # Now read the data, skipping header and units row
+                df = pd.read_csv(self.filepath, skiprows=skip_rows_before + skip_rows_after, 
+                                header=0, names=header_df.columns, encoding='utf-8-sig')
+            except Exception as e2:
+                raise ValueError(f"Error reading SynopticX file: {str(e)}. Fallback also failed: {str(e2)}")
         
         # Parse timestamp - SynopticX uses Date_Time column with format like "2020-09-30T02:40:00-0600"
         if 'Date_Time' in df.columns:
