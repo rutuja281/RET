@@ -254,9 +254,19 @@ class PlotGenerator:
         rows = (n_months + cols - 1) // cols
         
         fig, axes = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
+        
+        # Handle different axes shapes properly
         if n_months == 1:
-            axes = [axes]
+            # Single subplot: axes is a single Axes object
+            axes = np.array([axes])
+        elif rows == 1 or cols == 1:
+            # 1D array of axes - flatten if needed, but make sure it's an array
+            if hasattr(axes, 'flatten'):
+                axes = axes.flatten()
+            else:
+                axes = np.array([axes]) if not isinstance(axes, np.ndarray) else axes
         else:
+            # 2D array of axes
             axes = axes.flatten()
         
         for idx, month in enumerate(months_to_plot):
@@ -388,7 +398,10 @@ class PlotGenerator:
                         plots[key] = plot_func(df, precip_type)
                 except Exception as e:
                     plots[key] = None
-                    print(f"Error generating {key}: {e}")
+                    import sys
+                    import traceback
+                    print(f"Error generating {key}: {e}", file=sys.stderr, flush=True)
+                    print(traceback.format_exc(), file=sys.stderr, flush=True)
         
         return plots
 
