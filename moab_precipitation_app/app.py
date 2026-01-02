@@ -194,10 +194,20 @@ def process_data():
         if not file_id:
             return jsonify({'error': 'No file selected'}), 400
         
-        # Get file from database
-        data_file = DataFile.query.get(file_id)
+        # Get file from database (check if active)
+        data_file = DataFile.query.filter_by(id=file_id, is_active=True).first()
         if not data_file:
-            return jsonify({'error': f'File with ID {file_id} not found'}), 404
+            # Check if file exists but is inactive (soft-deleted)
+            inactive_file = DataFile.query.filter_by(id=file_id, is_active=False).first()
+            if inactive_file:
+                return jsonify({
+                    'error': f'File with ID {file_id} has been deleted',
+                    'filename': inactive_file.original_filename
+                }), 404
+            return jsonify({
+                'error': f'File with ID {file_id} not found',
+                'suggestion': 'Please upload the file again or select a different file'
+            }), 404
         
         if not os.path.exists(data_file.file_path):
             return jsonify({'error': 'File not found on server'}), 404
