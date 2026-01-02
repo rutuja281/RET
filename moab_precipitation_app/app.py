@@ -228,8 +228,41 @@ def process_data():
         plots = {}
         try:
             if generate_all:
-                plots = plot_gen.generate_all_plots(df, month_filter, season_filter)
+                # Limit number of plots for "generate all" to avoid timeout
+                # Generate only essential plots instead of all
+                plots = {}
+                essential_plots = ['annual_totals', 'monthly_climatology', 'seasonal_boxplot']
+                for plot_type in essential_plots:
+                    for precip_type in ['rain', 'snow']:
+                        key = f'{precip_type}_{plot_type}'
+                        try:
+                            if plot_type == 'monthly_heatmap':
+                                plots[key] = plot_gen.monthly_totals_heatmap(df, precip_type, month_filter)
+                            elif plot_type == 'monthly_climatology':
+                                plots[key] = plot_gen.monthly_climatology(df, precip_type, month_filter)
+                            elif plot_type == 'seasonal_boxplot':
+                                plots[key] = plot_gen.seasonal_boxplot(df, precip_type, season_filter)
+                            elif plot_type == 'annual_totals':
+                                plots[key] = plot_gen.annual_totals(df, precip_type)
+                            elif plot_type == 'monthly_distribution':
+                                plots[key] = plot_gen.monthly_distribution_boxplot(df, precip_type, month_filter)
+                            elif plot_type == 'monthly_histogram':
+                                plots[key] = plot_gen.monthly_histogram(df, precip_type, month_filter)
+                            gc.collect()
+                        except Exception as e:
+                            plots[key] = None
+                            tb_str = traceback.format_exc()
+                            print(f"Error generating {key}: {str(e)}", file=sys.stderr, flush=True)
+                            print(tb_str, file=sys.stderr, flush=True)
             else:
+                # Limit number of plots per request to avoid timeout
+                max_plots = 6  # Limit to 6 plots (3 plot types × 2 precip types)
+                if len(plot_types) * 2 > max_plots:
+                    return jsonify({
+                        'error': f'Too many plots requested. Maximum {max_plots} plots at a time. Please select fewer plot types.',
+                        'requested': len(plot_types) * 2,
+                        'limit': max_plots
+                    }), 400
                 for plot_type in plot_types:
                     for precip_type in ['rain', 'snow']:
                         key = f'{precip_type}_{plot_type}'
