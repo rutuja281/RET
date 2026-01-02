@@ -255,6 +255,13 @@ def process_data():
                             print(f"Error generating {key}: {str(e)}", file=sys.stderr, flush=True)
                             print(tb_str, file=sys.stderr, flush=True)
             else:
+                # Check if any plot types were selected
+                if not plot_types or len(plot_types) == 0:
+                    return jsonify({
+                        'error': 'No plot types selected. Please select at least one plot type.',
+                        'suggestion': 'Check at least one plot type checkbox before generating'
+                    }), 400
+                
                 # Limit number of plots per request to avoid timeout (Render free tier has 30s timeout)
                 max_plots = 4  # Limit to 4 plots (2 plot types × 2 precip types)
                 if len(plot_types) * 2 > max_plots:
