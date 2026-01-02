@@ -381,6 +381,14 @@ def process_data():
             cleaned_plots = {k: v for k, v in plots.items() if v is not None}
             cleaned_comparison_plots = {k: v for k, v in comparison_plots.items() if v is not None}
             
+            # Check if all plots failed
+            failed_plots = [k for k, v in plots.items() if v is None]
+            if len(cleaned_plots) == 0 and len(cleaned_comparison_plots) == 0 and len(failed_plots) > 0:
+                return jsonify({
+                    'error': f'All plots failed to generate. Please check your data and selections.',
+                    'failed_plots': failed_plots[:5]  # Show first 5 failed plots
+                }), 500
+            
             # Check response size (estimate - base64 strings are roughly 4/3 of original size)
             total_size = sum(len(v) if isinstance(v, str) else 0 for v in list(cleaned_plots.values()) + list(cleaned_comparison_plots.values()))
             
