@@ -236,6 +236,7 @@ def process_data():
         
         # Generate regular plots
         plots = {}
+        plot_errors = []  # Track errors for user feedback
         try:
             if generate_all:
                 # Limit number of plots for "generate all" to avoid timeout (Render free tier limit)
@@ -262,8 +263,10 @@ def process_data():
                         except Exception as e:
                             plots[key] = None
                             tb_str = traceback.format_exc()
-                            print(f"Error generating {key}: {str(e)}", file=sys.stderr, flush=True)
+                            error_msg = f"Error generating {key}: {str(e)}"
+                            print(error_msg, file=sys.stderr, flush=True)
                             print(tb_str, file=sys.stderr, flush=True)
+                            plot_errors.append(f"{key}: {str(e)}")
             else:
                 # Check if any plot types were selected
                 if not plot_types or len(plot_types) == 0:
@@ -302,8 +305,10 @@ def process_data():
                         except Exception as e:
                             plots[key] = None
                             tb_str = traceback.format_exc()
-                            print(f"Error generating {key}: {str(e)}", file=sys.stderr, flush=True)
+                            error_msg = f"Error generating {key}: {str(e)}"
+                            print(error_msg, file=sys.stderr, flush=True)
                             print(tb_str, file=sys.stderr, flush=True)
+                            plot_errors.append(f"{key}: {str(e)}")
             # Force garbage collection after plot generation
             gc.collect()
         except Exception as e:
@@ -394,9 +399,13 @@ def process_data():
             # Check if all plots failed
             failed_plots = [k for k, v in plots.items() if v is None]
             if len(cleaned_plots) == 0 and len(cleaned_comparison_plots) == 0 and len(failed_plots) > 0:
+                # Get first error message if available
+                first_error = plot_errors[0] if plot_errors else "Unknown error"
                 return jsonify({
                     'error': f'All plots failed to generate. Please check your data and selections.',
-                    'failed_plots': failed_plots[:5]  # Show first 5 failed plots
+                    'failed_plots': failed_plots[:5],  # Show first 5 failed plots
+                    'first_error': first_error,
+                    'suggestion': 'Check if your data file has the required columns (Rain_mm, Snow_mm, etc.)'
                 }), 500
             
             # Check response size (estimate - base64 strings are roughly 4/3 of original size)
