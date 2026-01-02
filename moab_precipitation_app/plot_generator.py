@@ -35,8 +35,9 @@ class PlotGenerator:
         try:
             buf = io.BytesIO()
             # Use lower DPI to reduce memory usage and response size (important for multiple plots)
-            fig.savefig(buf, format='png', dpi=80, bbox_inches='tight', 
-                       facecolor='white', edgecolor='none')
+            # DPI 70 is a good balance between quality and file size for web display
+            fig.savefig(buf, format='png', dpi=70, bbox_inches='tight', 
+                       facecolor='white', edgecolor='none', optimize=True)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.read()).decode('utf-8')
             return img_base64

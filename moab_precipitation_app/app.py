@@ -228,10 +228,10 @@ def process_data():
         plots = {}
         try:
             if generate_all:
-                # Limit number of plots for "generate all" to avoid timeout
-                # Generate only essential plots instead of all
+                # Limit number of plots for "generate all" to avoid timeout (Render free tier limit)
+                # Generate only 2 essential plots to stay within timeout
                 plots = {}
-                essential_plots = ['annual_totals', 'monthly_climatology', 'seasonal_boxplot']
+                essential_plots = ['annual_totals', 'monthly_climatology']  # Reduced from 3 to 2
                 for plot_type in essential_plots:
                     for precip_type in ['rain', 'snow']:
                         key = f'{precip_type}_{plot_type}'
@@ -255,13 +255,14 @@ def process_data():
                             print(f"Error generating {key}: {str(e)}", file=sys.stderr, flush=True)
                             print(tb_str, file=sys.stderr, flush=True)
             else:
-                # Limit number of plots per request to avoid timeout
-                max_plots = 6  # Limit to 6 plots (3 plot types × 2 precip types)
+                # Limit number of plots per request to avoid timeout (Render free tier has 30s timeout)
+                max_plots = 4  # Limit to 4 plots (2 plot types × 2 precip types)
                 if len(plot_types) * 2 > max_plots:
                     return jsonify({
-                        'error': f'Too many plots requested. Maximum {max_plots} plots at a time. Please select fewer plot types.',
+                        'error': f'Too many plots requested. Maximum {max_plots} plots at a time (2 plot types). Please select fewer plot types.',
                         'requested': len(plot_types) * 2,
-                        'limit': max_plots
+                        'limit': max_plots,
+                        'suggestion': 'Try selecting 1-2 plot types at a time'
                     }), 400
                 for plot_type in plot_types:
                     for precip_type in ['rain', 'snow']:
