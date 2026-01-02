@@ -89,6 +89,15 @@ function generatePlots() {
         return;
     }
     
+    // Validate that the selected file ID exists in the dropdown
+    const fileSelect = document.getElementById('fileSelect');
+    const selectedOption = fileSelect.options[fileSelect.selectedIndex];
+    if (!selectedOption || selectedOption.value !== selectedFileId || selectedOption.value === '') {
+        alert('The selected file is no longer available. Please refresh the page and select a file again.');
+        location.reload();
+        return;
+    }
+    
     // Get selected months
     const months = Array.from(document.querySelectorAll('.month-check:checked'))
         .map(cb => parseInt(cb.value));
