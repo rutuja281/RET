@@ -92,7 +92,16 @@ For production deployment:
 
 ## Notes
 
-- CSV files should be in MeteoBlue History+ format
+- CSV files should be in MeteoBlue History+ format or SynopticX format
 - Files are stored in the `uploads/` directory
-- The database file (`moab_data.db`) is created automatically in the app directory
+- The database file (`precipitation_data.db`) is created automatically in the app directory
+
+## Render Free Tier Limitations
+
+When deploying to Render's free tier, please note:
+- **30-second request timeout**: Generating multiple plots may timeout
+- **Memory limits**: Large datasets can cause memory issues
+- **Recommendation**: Generate plots one at a time (1-2 plot types maximum)
+- The application automatically limits to 4 plots per request to prevent timeouts
+- If you experience 502 errors, try generating fewer plots or upgrade to a paid Render plan
 
